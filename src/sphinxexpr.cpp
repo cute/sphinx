@@ -4966,28 +4966,29 @@ public:
 	{
 		this->m_dValues.Sort();
 
-		if (pConsts->m_eRetType == SPH_ATTR_BIGINT)
+		const char * sExpr = pConsts->m_sExpr.cstr();
+		int iExprLen = pConsts->m_sExpr.Length();
+
+		const int64_t * pFilter = (const int64_t *)this->m_dValues.Begin();
+		const int64_t * pFilterMax = pFilter + this->m_dValues.GetLength();
+
+		for ( const int64_t * pCur=pFilter; pCur<pFilterMax; pCur++ )
 		{
-			const char * sExpr = pConsts->m_sExpr.cstr();
-			int iExprLen = pConsts->m_sExpr.Length();
-
-			const int64_t * pFilter = (const int64_t *)this->m_dValues.Begin();
-			const int64_t * pFilterMax = pFilter + this->m_dValues.GetLength();
-
-			for ( const int64_t * pCur=pFilter; pCur<pFilterMax; pCur++ )
+			int64_t iVal = *pCur;
+			int iOfs = (int)( iVal>>32 );
+			int iLen = (int)( iVal & 0xffffffffUL );
+			if ( iOfs > 0 && iLen > 0 && iOfs < iExprLen && iLen < iExprLen && (iExprLen - iOfs) >= iLen )
 			{
-				int64_t iVal = *pCur;
-				int iOfs = (int)( iVal>>32 );
-				int iLen = (int)( iVal & 0xffffffffUL );
-				if ( iOfs > 0 && iLen > 0 && iOfs+iLen<=iExprLen )
-				{
-					CSphString sRes;
-					SqlUnescape( sRes, sExpr + iOfs, iLen );
-					m_dHashes.Add(sphFNV64 ( sRes.cstr(), sRes.Length() ));
-				}
+				CSphString sRes;
+				SqlUnescape ( sRes, sExpr + iOfs, iLen );
+				m_dHashes.Add (sphFNV64 ( sRes.cstr(), sRes.Length() ));
 			}
-			m_dHashes.Sort();
+			else
+			{
+				break;
+			}
 		}
+		m_dHashes.Sort();
 	}
 
 	/// evaluate arg, check if the value is within set
@@ -5426,11 +5427,15 @@ public:
 			int64_t iVal = *pCur;
 			int iOfs = (int)( iVal>>32 );
 			int iLen = (int)( iVal & 0xffffffffUL );
-			if ( iOfs > 0 && iLen > 0 && iOfs+iLen<=iExprLen )
+			if ( iOfs > 0 && iLen > 0 && iOfs < iExprLen && iLen < iExprLen && (iExprLen - iOfs) >= iLen )
 			{
 				CSphString sRes;
 				SqlUnescape ( sRes, sExpr + iOfs, iLen );
 				m_dHashes.Add ( sphFNV64 ( sRes.cstr(), sRes.Length() ) );
+			}
+			else
+			{
+				break;
 			}
 		}
 
@@ -5596,11 +5601,15 @@ public:
 			int64_t iVal = *pCur;
 			int iOfs = (int)( iVal>>32 );
 			int iLen = (int)( iVal & 0xffffffffUL );
-			if ( iOfs>0 && iOfs+iLen<=iExprLen )
+			if ( iOfs > 0 && iLen > 0 && iOfs < iExprLen && iLen < iExprLen && (iExprLen - iOfs) >= iLen )
 			{
 				CSphString sRes;
 				SqlUnescape ( sRes, sExpr + iOfs, iLen );
 				m_dStringValues.Add ( sRes );
+			}
+			else
+			{
+				break;
 			}
 		}
 
