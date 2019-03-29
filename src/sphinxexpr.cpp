@@ -872,7 +872,6 @@ public:
 		ESphJsonType eJson = JSON_NULL;
 		DWORD uOff = 0;
 		int iLen = 0;
-
 		switch ( m_eArg )
 		{
 			case SPH_ATTR_INTEGER:	m_sBuilder.Appendf ( "%u", m_pFirst->IntEval ( tMatch ) ); break;
@@ -908,6 +907,12 @@ public:
 					}
 				}
 				break;
+			case SPH_ATTR_STRING:
+				{
+					int iLen = m_pFirst->StringEval ( tMatch, ppStr );
+					m_sBuilder.Appendf ( "%.*s", iLen, *ppStr);
+					break;
+				}
 			case SPH_ATTR_STRINGPTR:
 				return m_pFirst->StringEval ( tMatch, ppStr );
 
@@ -4998,14 +5003,10 @@ public:
 			while ( iCount-- )
 			{
 				int iLen = sphJsonUnpackInt ( &pVal );
-				uint64_t fnv64 = sphFNV64 ( pVal, iLen );
-				if (m_dHashes.BinarySearch ( fnv64 ) )
+				if (m_dHashes.BinarySearch ( sphFNV64 ( pVal, iLen ) ) )
 				{
-					iTotal--;
-				}
-				if (!iTotal)
-				{
-					return true;
+					if (--iTotal == 0)
+						return true;
 				}
 				pVal += iLen;
 			}
@@ -5013,7 +5014,7 @@ public:
 		}
 		else if ( iJsonType == JSON_INT32_VECTOR ||
 				  iJsonType == JSON_INT64_VECTOR ||
-				  iJsonType == JSON_DOUBLE_VECTOR )
+				  iJsonType == JSON_DOUBLE_VECTOR)
 		{
 			int iTotal = this->m_dValues.GetLength();
 			int iLen = sphJsonUnpackInt ( &pVal );
@@ -5021,14 +5022,48 @@ public:
 			const T * pArrayMax = pArray + iLen;
 			for ( const T * m = pArray; m<pArrayMax; m++ )
 			{
-				if (this->m_dValues.BinarySearch ( (T)*m ) )
+				if (this->m_dValues.BinarySearch ( (int64_t)*m ) )
 				{
-					iTotal--;
+					if (--iTotal == 0)
+						return true;
 				}
-				if (!iTotal)
+			}
+			return false;
+		}
+		else if ( iJsonType == JSON_MIXED_VECTOR )
+		{
+			int iTotal = this->m_dValues.GetLength();
+			const BYTE * p = pVal;
+			sphJsonUnpackInt ( &p ); // skip node length
+			int iLen = sphJsonUnpackInt ( &p );
+			for ( int i=0; i<iLen; i++ )
+			{
+				ESphJsonType eType = (ESphJsonType)*p++;
+				pVal = p;
+				int64_t iRes = 0;
+				switch (eType)
 				{
-					return true;
+					case JSON_INT32:
+						iRes = (int64_t) sphJsonLoadInt ( &pVal );
+						break;
+					case JSON_INT64:
+						iRes = sphJsonLoadBigint ( &pVal );
+						break;
+					case JSON_DOUBLE:
+						iRes = (int64_t)sphQW2D ( sphJsonLoadBigint ( &pVal ) );
+						break;
+					default:
+						sphJsonSkipNode ( eType, &p );
+						continue;
+						break;
 				}
+
+				if ( this->m_dValues.BinarySearch (iRes ) )
+				{
+					if (--iTotal == 0)
+						return true;
+				}
+				sphJsonSkipNode ( eType, &p );
 			}
 			return false;
 		}
@@ -6602,7 +6637,7 @@ int ExprParser_t::AddNodeFunc ( int iFunc, int iFirst, int iSecond, int iThird, 
 			bGotMva |= ( dRetTypes[i]==SPH_ATTR_UINT32SET || dRetTypes[i]==SPH_ATTR_INT64SET );
 		}
 	}
-	if ( bGotString && !( eFunc==FUNC_CRC32 || eFunc==FUNC_EXIST || eFunc==FUNC_POLY2D || eFunc==FUNC_GEOPOLY2D ) )
+	if ( bGotString && !( eFunc==FUNC_TO_STRING || eFunc==FUNC_CRC32 || eFunc==FUNC_EXIST || eFunc==FUNC_POLY2D || eFunc==FUNC_GEOPOLY2D ) )
 	{
 		m_sParserError.SetSprintf ( "%s() arguments can not be string", sFuncName );
 		return -1;
